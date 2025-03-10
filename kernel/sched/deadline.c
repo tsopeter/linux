@@ -17,6 +17,9 @@
  */
 
 #include <linux/cpuset.h>
+#include <linux/cpufreq.h>	/* struct cpufreq_policy, cpufreq_cpu_get, cpufreq_cpu_put*/
+#include <linux/string.h>	/* strncmp */
+
 
 /*
  * Default limits for DL period; on the top end we guard against small util
@@ -1338,11 +1341,20 @@ static void update_curr_dl(struct rq *rq)
 						 rq,
 						 &curr->dl);
 	} else {
-		unsigned long scale_freq = arch_scale_freq_capacity(cpu);
-		unsigned long scale_cpu = arch_scale_cpu_capacity(cpu);
+		/* if policy is schedutil, use CPU frequency  to determine
+		 * execution time, else do not apply frequency scaling.
+		 */
+		struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
+		if (policy && strncmp(policy->governor->name, "schedutil", CPUFREQ_NAME_LEN) == 0) {
+			unsigned long scale_freq = arch_scale_freq_capacity(cpu);
+			unsigned long scale_cpu = arch_scale_cpu_capacity(cpu);
 
-		scaled_delta_exec = cap_scale(delta_exec, scale_freq);
-		scaled_delta_exec = cap_scale(scaled_delta_exec, scale_cpu);
+			scaled_delta_exec = cap_scale(delta_exec, scale_freq);
+			scaled_delta_exec = cap_scale(scaled_delta_exec, scale_cpu);
+		} else {
+			scaled_delta_exec = delta_exec;
+		}
+		cpufreq_cpu_put(policy); /* does nothing if policy == NULL */
 	}
 
 	dl_se->runtime -= scaled_delta_exec;
